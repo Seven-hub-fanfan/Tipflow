@@ -1,6 +1,6 @@
 """Fault-injection checks using real journals and WindowServer state.
 
-Run only after quitting Scrollapp:
+Run only after quitting Tipflow:
 python3 scripts/verify_cursor_recovery.py --global HELPER PAYLOAD_DIRECTORY
 The directory must contain frog.plist. Original backups are preserved in it.
 """
@@ -45,7 +45,7 @@ def main():
         child.wait(timeout=10)
         child = None
 
-        # CoreCursorCopyImages describes a cache Scrollapp never wrote directly.
+        # CoreCursorCopyImages describes a cache Tipflow never wrote directly.
         # A display or accessibility change may regenerate one native descriptor.
         drifted = copy.deepcopy(baseline)
         index = next(iter(drifted["CoreImages"]))
@@ -59,6 +59,16 @@ def main():
         archive = directory / "recovery-archives" / ready["archive"]
         assert plistlib.loads(archive.read_bytes()) == drifted
         results.append({"test": "core-cache-drift-recovers-with-archive", **ready})
+        stop()
+
+        # An older system or cold cache can lack a name present on this Mac.
+        absent = copy.deepcopy(baseline)
+        absent["Names"]["com.apple.cursor.40"] = {"Registered": False}
+        journal.write_bytes(plistlib.dumps(absent))
+        child = launch()
+        ready = response(child)
+        assert ready["ok"] and ready["ready"] and not journal.exists(), ready
+        results.append({"test": "originally-absent-global-registration-recovers", **ready})
         stop()
 
         # Unwritable original metadata is a genuine named-entry failure.
@@ -90,7 +100,7 @@ def main():
         stop()
 
         # A structurally valid but changed named descriptor must not be dismissed
-        # as cache drift. Non-float-exact metadata exposes readback mismatch.
+        # as cache drift. Changed hotspot metadata exposes readback mismatch.
         broken = copy.deepcopy(baseline)
         broken["Names"][name]["Original"]["HotSpotX"] += 0.123456789
         journal.write_bytes(plistlib.dumps(broken))
